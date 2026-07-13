@@ -7,6 +7,9 @@ import sys
 import pandas as pd
 import torch
 
+import transformers
+transformers.logging.set_verbosity_error()
+
 from peft import PeftModel, PeftConfig
 from transformers import EsmTokenizer, EsmForSequenceClassification
 
@@ -222,8 +225,26 @@ def main():
 
     # Build model + tokenizer
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    base = EsmForSequenceClassification.from_pretrained(base_name)
-    model = PeftModel.from_pretrained(base, args.model_path).to(device).eval()
+    base = EsmForSequenceClassification.from_pretrained(base_name, num_labels=2)
+    model = PeftModel.from_pretrained(base, args.model_path)
+
+    # Older PEFT saved classifier weights as base_model.model.classifier.*
+    # Newer PEFT doesn't auto-load these, so inject them manually
+    try:
+        from safetensors.torch import load_file as st_load
+        sd = st_load(os.path.join(args.model_path, "adapter_model.safetensors"))
+        classifier_state = {
+            k.replace("base_model.model.", ""): v
+            for k, v in sd.items()
+            if "classifier" in k
+        }
+        if classifier_state:
+            model.base_model.model.load_state_dict(classifier_state, strict=False)
+            print(f"Injected {len(classifier_state)} classifier weights from adapter file.")
+    except Exception as e:
+        print(f"(classifier weight injection skipped: {e})")
+
+    model = model.to(device).eval()
     tokenizer = EsmTokenizer.from_pretrained(base_name)
 
     # Sanity check: show adapter status and difference ON vs OFF on a tiny batch
