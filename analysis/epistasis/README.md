@@ -451,16 +451,63 @@ Three, and only one is used here. Full map in the parent repo's `CLAUDE.md`.
 
 ## Open questions
 
-1. **Does Library C have complete sublandscapes?** It is 7 loci on 7 backgrounds (16,800
-   variants) at only 2–21% censoring, against Library M's 49–76%. If the sublandscapes are
-   complete it supports interaction estimates that do not depend on Tobit extrapolation at
-   all. Note that Library C's antibody files are *fluorescence* (`Fluor at 1uM`,
-   `Fluor at 10nM`, two replicates each) and not KD — only its ACE2 file is KD — so this is
-   not a drop-in replacement for the Library M target.
+1. **Does Library C have complete sublandscapes? — ANSWERED: yes, essentially.**
+
+   First, a correction. Earlier notes described Library C as "7 loci on 7 backgrounds",
+   which invites reading it as a 2^7 = 128-corner design. **It is not biallelic.** Allele
+   counts per locus, pooled over all 23 `XABA_*` files (backgrounds 1–7, alleles below 1%
+   frequency excluded):
+
+   | locus | alleles | n |
+   |---|---|---|
+   | `pos_346` | I K R S T | 5 |
+   | `pos_444` | K M N R T | 5 |
+   | `pos_452` | L M Q R | 4 |
+   | `pos_460` | K N | 2 |
+   | `pos_486` | F S V | 3 |
+   | `pos_490` | F S | 2 |
+   | `pos_493` | Q R | 2 |
+
+   5 × 5 × 4 × 2 × 3 × 2 × 2 = **2,400 per background**, × 7 = **16,800** — which
+   reproduces the documented library size exactly. Only three of the seven loci are
+   biallelic. Note also that `pos_background` takes eight values: 1–7 are the designed
+   backgrounds (one `background_strain` each), and **9 is a catch-all** carrying 37,061
+   rows over 19,306 distinct strains, which must be excluded from any per-background count.
+
+   Coverage, counting distinct design genotypes observed per background (union over all 23
+   files):
+
+   | bg | present | of 2,400 | % |
+   |---|---|---|---|
+   | 1 | 2,348 | 2,400 | 97.8% |
+   | 2 | 2,340 | 2,400 | 97.5% |
+   | 3 | 2,345 | 2,400 | 97.7% |
+   | 4 | 2,297 | 2,400 | 95.7% |
+   | 5 | 2,362 | 2,400 | 98.4% |
+   | 6 | 2,342 | 2,400 | 97.6% |
+   | 7 | 2,369 | 2,400 | 98.7% |
+
+   No background is literally complete; all seven are near-complete (overall 16,403 /
+   16,800 = 97.6%). In the 2^7 framing: a 128-corner subcube means choosing 2 alleles at
+   each of the four multiallelic loci, giving 1,800 possible subcubes per background, and
+   **every background contains at least one fully complete 128-corner sublandscape** (bg7
+   735 of 1,800 complete, bg4 only 68; median subcube 123–127 of 128). So Library C does
+   support interaction estimates that do not depend on Tobit extrapolation.
+
+   Two practical caveats before using it. Library C's antibody files are *fluorescence*
+   (`Fluor at 1uM`, `Fluor at 10nM`, two replicates each) and not KD — only its ACE2 file
+   is KD — so it is not a drop-in replacement for the Library M target. And **ACE2, the
+   only KD ligand, has among the weakest coverage**: 79.0% mean across backgrounds, falling
+   to 1,588 / 2,400 = 66% at background 4. Per-ligand coverage runs from AZD1061 at 1 µM
+   (94.5%) down to ACE2 (79.0%). Separately, `XABA_Exp_rep_b` is **background-7 only**
+   (2,390 rows at bg7, 1 at bg1) and is not a general-coverage replicate of
+   `XABA_Exp_rep_d`.
 2. **Does the shrinkage conclusion survive on better-conditioned data?** The whole
    censoring-vs-shrinkage argument rests on six heavily censored groups. Library C is the
    natural test: if attenuation slopes stay near 0.26 where censoring is 2–21%, that closes
-   the question that n = 6 leaves open.
+   the question that n = 6 leaves open. Question 1 now confirms the coverage needed for
+   this (95.7–98.7% per background), so the blocker is the phenotype mismatch — fluorescence
+   at two concentrations rather than enrichment — not the design.
 3. **Does a Walsh-Hadamard decomposition need attenuation correction first?** Given global
    slopes of ~0.26 on main effects and a further 1.57× on interactions, a variance spectrum
    computed from model predictions would understate every order, and not uniformly —

@@ -177,8 +177,12 @@ for b, v in zip(bars, per["spearman"]):
 py = len(per) + 0.85
 ax.barh([py], [agg_rho], height=0.62, color="#c6d5e7")
 ax.text(agg_rho + 0.015, py, f"{agg_rho:.2f}", va="center", fontsize=11.5, color=MUTED)
+# The pooled bar does not just mix antibodies, it mixes two opposed phenotype
+# scales (src/phenotype_convention.py): rho within ceiling is 0.585 and within
+# floor 0.648, against 0.900 pooled. Name the scale on every row.
 ax.set_yticks(list(y) + [py])
-ax.set_yticklabels(list(per.index) + ["pooled (inflated)"])
+ax.set_yticklabels([f"{a}  ({pc.measured_quantity(a)})" for a in per.index]
+                   + ["pooled (mixes both scales)"])
 ax.get_yticklabels()[-1].set_color(MUTED)
 ax.set_xlim(0, 1.05); ax.set_ylim(-0.6, py + 0.5)
 no_value_axis(ax, "x")
@@ -198,7 +202,14 @@ ax.plot(lim, lim, ls=(0, (4, 4)), color="#8d8c87", lw=1.0, zorder=3)
 ax.set_xlim(*lim); ax.set_ylim(*lim)
 ax.set_xticks([0, 1]); ax.set_yticks([0, 1])
 ax.set_xlabel("Measured"); ax.set_ylabel("Predicted")
-title(ax, "Predicted vs. measured")
+# The two bands are not just "antibody identity": they are the two phenotype
+# conventions, separated perfectly (100% of ceiling rows predict >0.5, 0% of
+# floor rows). Say so on the figure.
+ax.text(0.97, 0.955, "ceiling trio — higher = more binding", transform=ax.transAxes,
+        ha="right", va="top", fontsize=9.5, color=INK2)
+ax.text(0.97, 0.055, "floor trio — higher = more escape", transform=ax.transAxes,
+        ha="right", va="bottom", fontsize=9.5, color=INK2)
+title(ax, "Predicted vs. measured (two scales)")
 finish(fig, "fig6_predicted_vs_measured_pooled")
 
 # ---- 7: small multiples ----
