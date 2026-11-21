@@ -174,7 +174,7 @@ distinction between them. The values do:
 
 | set | antibodies | range | point mass |
 |---|---|---|---|
-| floor | 002-S21F2, AZD8895, S309 | `[0.00, 3.3–4.3]` | 49–76% exactly at 0 |
+| floor | 002-S21F2, AZD8895, S309 | `[0.00, 3.3–5.2]` | 49–76% exactly at 0 |
 | ceiling | AZD1061, LY-CoV1404, REGN10987 | `(−2.8, 1.00]` | 55–61% exactly at 1 |
 
 The upstream `README.txt` gives the mechanism: an enrichment score depends on which
@@ -199,39 +199,206 @@ with no harmonization, so sign agreement across the two sets is computed on oppo
   `sign_agree_frac` in `crossgroup_overlap.csv` should be read as uninterpretable rather
   than as evidence either way. All have overlap ≤ 3, so nothing substantive rests on them.
 
-**What it affects outside this directory.** Traced; the numbers are sound but several
-labels are not:
+**What it affects outside this directory.** Traced; the numbers were sound throughout, but
+several labels were not. The three figure scripts are now fixed; the labeled data splits
+are not.
 
-- `src/plot_decile_calibration.py` computes every decile, spread and ranking accuracy
-  inside `groupby("antibody_name")`, so **the numbers are valid**. All six curves rise.
-  But the x-axis reads "Predicted binding rank (low to high)" and the y-axis "Mean measured
-  affinity" for all six panels, and a rising curve means *more escape* for the floor trio
-  and *more binding* for the ceiling trio. The six-panel figure needs per-panel axis
-  wording; the **overlay figure is worse** — it min-max normalizes all six onto one panel
-  "so the shapes are comparable", which presents two opposed phenotypes as a single trend.
-- `src/plot_binds_escaped_split.py` labels `label == 1` as **"Binds"** for all six groups.
-  For the floor trio `affinity > median` means more escape, so **the legend is inverted for
-  three of six antibodies.**
-- `src/plot_measured_vs_predicted_heatmap.py` sorts its shared row order by "mean MEASURED
-  binding across antibodies" and takes one color scale from all antibodies pooled —
-  averaging across opposed signs and across ranges `[0, 4.3]` vs `(−2.8, 1]`.
+`src/phenotype_convention.py` is now the single source of truth for which antibody sits on
+which scale. Scripts import it rather than restating the sets, and call `pc.verify(df)`,
+which asserts the declared point mass is really there — so a reprocessed or rescaled
+upstream file fails loudly instead of silently flipping a label.
+
+- `src/plot_decile_calibration.py` — **fixed.** It computed every decile, spread and
+  ranking accuracy inside `groupby("antibody_name")`, so **the numbers were always valid**
+  and are unchanged by the fix; only the labels were wrong. The x-axis read "Predicted
+  binding rank (low to high)" and the y-axis "Mean measured affinity" for all six panels,
+  but a rising curve means *more escape* for the floor trio. The six-panel figure is now
+  laid out one convention per row (ceiling top, floor bottom), with axis wording from
+  `pc.measured_quantity()` and panels colour-coded by convention. The **overlay figure**
+  min-max normalized all six onto one panel "so the shapes are comparable", presenting two
+  opposed phenotypes as a single trend; it is now **split into one panel per convention**,
+  since normalizing is only meaningful among curves that rise in the same direction — though
+  that split fixes the sign error **only**, and the figure still must not be read as a shape
+  comparison between antibodies (see the caveat below). Three of the four printed quantities
+  — `spread`, `monotonic` and `rank acc` — are convention-**invariant**: a flip reverses the
+  decile order and negates every mean, and the two cancel exactly (verified bit-identical).
+  Only the decile means are convention-dependent.
+
+  **Invariant is not the same as comparable.** An earlier draft of this section called
+  `rank acc` "the one quantity comparable across all six"; that was wrong. It is computed
+  only on pairs whose measured values differ, and that share tracks censoring — 42.6% of
+  pairs for S309 (75.8% censored) against 76.1% for AZD8895 (48.7% censored),
+  Pearson(rank acc, censoring) = +0.68 over the six. Restricted to interior-vs-interior
+  pairs the ordering **reverses**: S309 goes from best (84.2%) to worst (55.3%), REGN10987
+  from fifth to first. So the 84.1% annotated on S309's panel is mostly a statement about
+  its point mass, and it sits awkwardly beside S309's lowest model ρ (0.5765) and worst
+  additive-vs-model gap (+0.045) reported above. Use the per-group Spearman for model
+  quality, not this number.
+  *Caveat on the overlay.* Within one panel the normalized curve is very nearly a rescaling
+  of the per-decile uncensored fraction (|Pearson| = 0.96–1.00 in every antibody), so what
+  the eye reads as "shape" is largely the censoring mechanism rather than graded
+  calibration. In the floor panel the three censoring fractions are 48.7 / 56.9 / 75.8%, so
+  S309's late rise against AZD8895's early rise is a point-mass artifact. The SEM bars
+  collapse near the bound and understate uncertainty in exactly the deciles that drive the
+  shape.
+- `src/plot_binds_escaped_split.py` — **fixed.** It labelled `label == 1` as **"Binds"**
+  for all six groups; for the floor trio `affinity > median` means more escape, so the
+  legend was inverted for three of six antibodies. Each bar now carries its own class from
+  `pc.positive_label()` ("Binds" / "Escaped"), bars are grouped and bracketed by convention
+  so the two scales never interleave, and the **pooled total was removed** — it summed
+  "Binds" counts and "Escaped" counts into one number.
+- `src/plot_measured_vs_predicted_heatmap.py` — **fixed.** It sorted its shared row order by
+  "mean MEASURED binding across antibodies" and took one color scale from all antibodies
+  pooled, averaging across opposed signs and across ranges `[0, 5.2]` vs `(−2.8, 1]`. It
+  now renders one block per convention, each with its own row order, colour scale and
+  colorbar label.
 - `data/paired/{group,variant}_holdout_labeled/` inherit the same convention: `label == 1`
   means "escapes" for the floor trio and "binds" for the ceiling trio. Per-group classifier
-  metrics in `results/paired_classifier_test_metrics.csv` are unaffected (each antibody is
-  in training, so the model learns its convention), but the **`pooled` row mixes the two
-  conventions** and is not a single binds-vs-escapes number. The unused
-  `group_holdout_labeled/` split is the live hazard: train is 3 ceiling + 1 floor, test is
-  S309 (floor), so an antibody-generalization run there would be asked to transfer an
-  inverted label.
+  metrics in `results/paired_classifier_test_metrics.csv` are valid **within** a group (each
+  antibody is in training, so the model learns its convention), but the **`pooled` row mixes
+  the two conventions** and is not a single binds-vs-escapes number. Two further cautions on
+  that CSV, neither of which harmonizing the label would fix:
+  - *The pooled row is also inflated by between-group structure*, independently of the
+    convention problem. 83.3% of pooled pairs are cross-antibody, per-group prevalence spans
+    0.242–0.606, and the model sees the antibody sequence, so base-rate separation alone
+    lifts it: pooled AUROC 0.8620 against a per-group mean of 0.8460, and pooled F1 0.8027
+    against 0.7911 (exceeding 4 of the 6 per-group F1 values).
+  - *Per-group values are still not a league table.* F1 is not invariant to which class is
+    positive, so S309's 0.693 (prevalence 24%, positive = "any escape") and LY-CoV1404's
+    0.863 (prevalence 61%, positive = "full binding") are not on a common footing.
+
+  `group_holdout_labeled/` is the live hazard — see the warning below.
 - **Unaffected:** `s15`–`s19`. Each loops `for ab in ABS` and computes Pearson, Spearman,
   slope and RMS within one group, where a sign flip negates the fitted coefficient and the
   model-implied value together — all four statistics are algebraically invariant to it. The
   `s19` effect-size correlation uses RMS magnitudes only, so the r = 0.907 shrinkage result
   does not depend on sign convention either.
 
-Resolving this means establishing the sort direction per antibody from the Library M raw
-processing code (`RBD Data/LibraryM_raw_data_processing/`) and, if confirmed, flipping the
-floor set before any cross-set comparison and fixing the figure labels above.
+### ⚠️ `data/paired/group_holdout_labeled/` transfers an inverted label — do not train on it
+
+This split asks a model to generalize to an **unseen antibody**, and the convention is not
+held constant across the split. `make_group_cutoff_labels.py` reuses the antibody
+assignment from `make_paired_splits.py` (test = S309, val = AZD8895, train = the other
+four), which lands this way:
+
+| split | antibodies | convention | rows | `label == 1` means | % positive |
+|---|---|---|---|---|---|
+| train | AZD1061, LY-CoV1404, REGN10987 | ceiling | 513,681 | **Binds** | 55.0–60.7% |
+| train | 002-S21F2 | floor | 171,227 | **Escaped** | 42.6% |
+| val | AZD8895 | floor | 171,227 | **Escaped** | 50.0% |
+| test | S309 | floor | 171,227 | **Escaped** | 23.9% |
+
+**75% of training rows define `label == 1` as more binding; 100% of validation and test
+rows define it as more escape.** A classifier trained here learns the majority training
+sense of the positive class and is then selected and scored on antibodies where that class
+is the opposite phenotype. The failure is quiet: no column *states* which sense a row
+carries (`cutoff` and `antibody_name` do distinguish the sets, but nothing asserts the
+meaning and no consumer checks it), and the run will report a plausible-looking accuracy.
+
+**What to expect, and what it will not tell you.** An earlier draft of this section
+predicted anti-correlation — "near or below chance". That is not supported, and the repo's
+own evidence contradicts it. The same antibody assignment has been run twice in regression
+form: `ABANDONED_run1_antibody_holdout_identity_shortcut` gave val Spearman
+0.0095 / −0.0598 / 0.0357 / 0.0077 / −0.0348 / −0.0300, and run7 (warm-started) gave val
+AZD8895 **−0.0525** and test S309 **+0.0263** — two floor antibodies with opposite signs,
+both ≈ 0. That is near-chance, not a systematic inversion. Note also that "below chance" is
+undefined for accuracy here: test prevalence is 23.9%, so the majority-class baseline is
+76.1%, not 50%. AUROC is the metric that is exactly antisymmetric under a label flip
+(AUROC → 1 − AUROC), so state results that way if inversion is what you want to detect.
+
+Where the inversion *does* show up in those runs is the mean level, not the ranking: run7
+predicts a mean of 0.904 for AZD8895 against a true mean of 0.109 — a ceiling-scale
+prediction for a floor-scale antibody.
+
+Crucially, **a poor result here is uninterpretable rather than diagnostic.** Label
+inversion and the already-documented identity shortcut predict the same observable on this
+split, so neither can be attributed. That is the reason not to use it, independent of how
+the number comes out.
+
+Two further traps in the same split:
+
+- **002-S21F2 is the only floor antibody in train**, contributing exactly a quarter of the
+  rows against three ceiling antibodies. Note the risk is *not* that the model fails to
+  represent per-antibody differences — run7's diagnostics record an antibody-vs-RBD
+  prediction-variance ratio of 41.5 (run1: 48.8), i.e. predictions are dominated by
+  antibody identity. It is that the model has no basis for inferring the sense of an
+  antibody it has never seen, and one in-train example of the minority sense is a thin
+  basis for learning that the sense varies at all.
+- **Val and test are both floor**, so validation will not catch the inversion — it is
+  inverted in exactly the same direction as test. Early stopping and model selection will
+  look consistent while both are measuring the flipped quantity.
+
+#### The label generators are the proper fix, and they are still wrong
+
+`src/make_group_cutoff_labels.py` and `src/make_variant_holdout_labels.py` both restate
+`CEILING_GROUPS = {"AZD1061", "LY-CoV1404", "REGN10987"}` by hand instead of importing
+`src/phenotype_convention.py`. More seriously, `make_group_cutoff_labels.py`
+**describes the ceiling/floor difference as nothing more than tie-handling at the median**,
+and `make_variant_holdout_labels.py` adopts that account by reference ("see
+make_group_cutoff_labels.py for the cutoff/tie-handling/AZD1061 rationale"), so the same
+reading governs both:
+
+> This is the same median split in both cases -- only the tie-handling at the cutoff value
+> flips, because the mass of ties sits on the opposite side of the distribution for ceiling
+> groups vs. floor groups
+
+**That description is wrong, and it is the reason the bug propagated.** Two separate things
+are going on and the docstring collapses them into one:
+
+1. *Tie-handling* — `>` vs `>=` at the cutoff. The `>=` tie-break is necessary: with >50%
+   of rows exactly on the bound, `> cutoff` would be degenerate for ceiling groups. But
+   calling the result a "median split" of a graded phenotype overstates what comes out
+   of it; see the point about saturation below.
+2. *Sign inversion* — the underlying phenotype runs in opposite directions between the two
+   sets. The cutoff rule neither causes this nor corrects it. It is still there after the
+   labels are assigned, which is exactly why `label == 1` means "binds" in one set and
+   "escapes" in the other.
+
+**The cutoff is the saturation bound, so `label` is essentially the censoring indicator.**
+Verified on the data: for all three ceiling groups the median is exactly 1.0 and
+`label == 1 ⟺ affinity == 1.0`; for 002-S21F2 and S309 the median is exactly 0.0 and
+`label == 1 ⟺ affinity > 0`. Only AZD8895 has an interior cutoff (0.017354). Three
+consequences worth stating plainly:
+
+- The "% positive" column in the table above is, for five of six antibodies, just the
+  complement of the censoring fraction — S309's 23.9% positive is 100 − 76.1% censored.
+- The task these splits define is **"predict saturation"**, not graded binding. What the
+  `pooled` row really mixes is "is saturated" for three groups against "is *not* saturated"
+  for three.
+- It makes the prescribed fix provably well-defined rather than an arbitrary convention
+  choice: flipping the floor set maps both sets onto `label == 1 ⟺ s == 0` (no escape),
+  which is exactly the ceiling definition.
+
+Reading (1) as the whole story makes the convention look like a cosmetic detail of the
+median split. That framing plausibly propagated into `src/plot_binds_escaped_split.py`,
+which is the one figure script that re-implements the median-cutoff rule itself. The other
+two mislabelled figures are an independent error: `plot_decile_calibration.py` and
+`plot_measured_vs_predicted_heatmap.py` read only
+`results/rbd_split_test_predictions.csv` and never touch labels or cutoffs — they simply
+called raw affinity "binding".
+
+**The proper fix is to correct these generators and regenerate the labeled splits**, not to
+patch consumers downstream. Concretely: import `phenotype_convention` rather than restating
+the set, decide one phenotypic direction for `label == 1`, flip the floor set (or
+equivalently the ceiling set) so the positive class names one phenotype throughout, record
+the chosen direction in a column so no future reader has to infer it, and rewrite
+`data/paired/{group,variant}_holdout_labeled/`. Until that is done, every consumer of these
+splits has to re-derive the convention by hand, and `group_holdout_labeled/` stays unusable
+for its stated purpose.
+
+**This is deliberately not done yet.** Choosing the direction is a content decision, and
+regenerating overwrites labeled data that existing results were computed from — see the
+caveat on `results/paired_classifier_test_metrics.csv` above. Do it as its own change, with
+the metrics regenerated alongside.
+
+`variant_holdout_labeled/` is safer by comparison — every antibody appears in train, val and
+test (verified: all 6 in each of 821,868 / 102,714 / 102,780 rows), so each one's convention
+is learned rather than transferred — but its pooled metrics still mix the two senses.
+
+Resolving the underlying question means establishing the sort direction per antibody from
+the Library M raw processing code (`RBD Data/LibraryM_raw_data_processing/`) and, if
+confirmed, flipping the floor set before any cross-set comparison. The figure labels above
+are fixed; the data splits and `make_*_labels.py` generators are not.
 
 ## Datasets
 
