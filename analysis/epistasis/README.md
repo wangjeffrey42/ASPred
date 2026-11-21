@@ -96,3 +96,21 @@ AZD8895 and 3.34x for S309. Direction is recovered far better for main effects
 Read together with the slopes: the model learns which direction each allele pushes and
 roughly orders them, but compresses every effect toward zero, and compresses
 interactions hardest.
+
+## Is the excess compression censoring-driven?
+
+No. `s19` regresses the excess ratio (main-effect RMS ratio / interaction RMS ratio) on
+censoring across the six groups. Censoring gives Pearson 0.613 (p = 0.20, permutation
+p = 0.199 over all 720 orderings), and the apparent trend is carried entirely by S309:
+among the other four groups, which span 55.0-60.7% censoring, the correlation is +0.089
+(p = 0.91). AZD8895 settles it directly - it is the *least* censored group at 49.2% and
+has the second-highest excess compression at 2.35x.
+
+What does predict excess compression is the size of the effects themselves: RMS fitted
+main effect gives Pearson 0.907 (p = 0.013) and RMS fitted interaction 0.836 (p = 0.038).
+Groups with larger true effects are compressed proportionally harder. That is the
+signature of a shrinkage/regression-to-the-mean property of the trained model, i.e.
+architectural (or a training-objective effect), not a consequence of censored labels.
+
+Caveat on power: n = 6 groups. These correlations rank the explanations but cannot
+settle them; the AZD8895 counterexample is the sturdier part of the argument.
