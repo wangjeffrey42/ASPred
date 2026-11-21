@@ -79,3 +79,20 @@ AZD1061 (0.745 / 0.833), absent for AZD8895 (0.325, n.s.), and for S309 the Pear
 0.050 while the Spearman is 0.455 — it gets some of the ordering, almost none of the
 scale. This matches `results/epistasis_residual_test.png`, where the model's
 non-additive component spans ~7x less than the measured one.
+
+## Is the attenuation specific to interactions?
+
+No. `s17`/`s18` repeat the comparison for main effects (43 representatives, same 16
+backgrounds, `d = y(alt) - y(ref)`). Main-effect slopes are 0.12–0.33, median 0.26 —
+nowhere near 1. The model understates main effects by roughly the same 3–4x it
+understates interactions, so the shrinkage is a global property of the fit, not
+something that happens only to interaction structure.
+
+Interactions are nonetheless attenuated *further*: median RMS ratio 0.288 for main
+effects vs 0.184 for interactions, a 1.57x additional shrinkage, rising to 2.35x for
+AZD8895 and 3.34x for S309. Direction is recovered far better for main effects
+(Pearson 0.82–0.95 in every group) than for interactions (0.05–0.78).
+
+Read together with the slopes: the model learns which direction each allele pushes and
+roughly orders them, but compresses every effect toward zero, and compresses
+interactions hardest.
