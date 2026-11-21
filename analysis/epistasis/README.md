@@ -7,8 +7,40 @@ paths relative to their own location, so they run in place:
 cd analysis/epistasis/scripts && python3 s1_features.py
 ```
 
-`cache/` holds intermediate pickles and is regenerable by rerunning s1 → s16 in order.
+`cache/` holds intermediate pickles and is regenerable by rerunning s1 → s20 in order.
 `results/` holds the reported tables.
+
+Scripts need the `aspred` conda env (`conda activate aspred`).
+
+## The question
+
+Does the paired-encoder ESM-2 affinity model encode interactions between RBD mutations,
+and does it add anything over a simple linear model? Short answers: the interactions are
+real and the model recovers their *ordering* but almost none of their *magnitude*; and no,
+it does not beat an additive baseline on held-out data.
+
+## Headline result: a 47-parameter linear model matches the trained model
+
+`s20` scores both on the same held-out test rows (17,130 per antibody). The additive Tobit
+is fit on train genotypes only, so neither model has seen the test split. Model numbers are
+the run5 checkpoint, consistent with `results/paired_affinity_metrics.csv` (`test_full`).
+
+| group | additive ρ | model ρ | diff |
+|---|---|---|---|
+| 002-S21F2 | 0.647 | 0.655 | −0.008 |
+| AZD1061 | 0.516 | 0.504 | +0.012 |
+| AZD8895 | 0.662 | 0.646 | +0.017 |
+| LY-CoV1404 | 0.667 | 0.644 | +0.023 |
+| REGN10987 | 0.575 | 0.581 | −0.005 |
+| S309 | 0.621 | 0.576 | **+0.045** |
+| mean | **0.615** | **0.601** | **+0.014** |
+
+47 parameters per group (intercept + 46 allele indicators). The additive model is ahead in
+4 of 6 groups and behind by at most 0.008 in the other two. Whatever the trained model has
+learned beyond per-allele additivity does not show up as held-out rank accuracy.
+
+This is the context for everything below: the interaction structure the model *does* carry
+is real but too compressed to buy it anything.
 
 ## Pipeline
 
@@ -27,6 +59,10 @@ cd analysis/epistasis/scripts && python3 s1_features.py
 | `s14_crossgroup.py` | cross-group sharing with uniform and position-matched permutation nulls |
 | `s15_model_epistasis.py` | model-implied interaction per pair via ASPred-Affinity forward passes |
 | `s16_model_vs_fitted.py` | correlates model-implied against fitted coefficients |
+| `s17_model_main_effects.py` | model-implied **main** effects, same backgrounds |
+| `s18_main_vs_interaction_slope.py` | main-effect vs interaction attenuation side by side |
+| `s19_excess_vs_censoring.py` | tests whether excess interaction compression tracks censoring |
+| `s20_additive_vs_model.py` | held-out additive-vs-trained-model comparison (headline table) |
 
 ## Decisions that are easy to get wrong
 
@@ -114,3 +150,107 @@ architectural (or a training-objective effect), not a consequence of censored la
 
 Caveat on power: n = 6 groups. These correlations rank the explanations but cannot
 settle them; the AZD8895 counterexample is the sturdier part of the argument.
+
+## Why Tobit and not OLS
+
+Every group has a hard point mass on one bound — 49% to 76% of rows (`group_summary.csv`),
+so OLS is fitting a response that cannot move in one direction over half the time. All
+reported coefficients are Tobit, with the bound taken from the empirical point mass
+(`s1_features.py`).
+
+OLS was run in an earlier session and gave slightly *lower* model-vs-fitted correlations
+throughout. The ordering of the conclusions did not change. That comparison was not kept as
+a result file, so **numbers in any pre-Tobit notes will not match the tables here** — the
+CSVs in `results/` are authoritative.
+
+## The six groups sit on two incompatible scales
+
+This is the most load-bearing unresolved issue in the analysis.
+
+`RBD Data/File_Details.csv` (**parent-repo-relative** — see below) labels all six antibodies
+identically: Library M, `Enrichment at 100nM`, column `ph_mean`. The metadata draws no
+distinction between them. The values do:
+
+| set | antibodies | range | point mass |
+|---|---|---|---|
+| floor | 002-S21F2, AZD8895, S309 | `[0.00, 3.3–4.3]` | 49–76% exactly at 0 |
+| ceiling | AZD1061, LY-CoV1404, REGN10987 | `(−2.8, 1.00]` | 55–61% exactly at 1 |
+
+The upstream `README.txt` gives the mechanism: an enrichment score depends on which
+subpopulation was sorted. An evading-population sort yields `s` (escape; 0 = none, may
+exceed 1); a binding-population sort yields `1 − s` (1 = full binding, may go negative).
+The 3/3 split matches that exactly, which means **the sign of the phenotype is inverted
+between the two sets** — a positive coefficient reads as "more escape" for the floor set and
+"more binding" for the ceiling set.
+
+This is inferred from the bound structure. Nothing upstream records which sort was used.
+
+**What it affects.** `s14_crossgroup.py:43` compares `np.sign(coef[a][t]) == np.sign(coef[b][t])`
+with no harmonization, so sign agreement across the two sets is computed on opposed scales:
+
+- **Unaffected:** every per-group quantity — all attenuation slopes, RMS ratios, the excess
+  compression analysis, the headline additive comparison. These are ratios or correlations
+  within one group.
+- **Unaffected:** the strongest sharing result. AZD1061/REGN10987 (overlap 15, sign
+  agreement 14/15, p = 0.0) is *within* the ceiling set.
+- **Affected:** the four cross-set pairs with nonzero overlap — 002-S21F2/AZD1061 (3),
+  002-S21F2/LY-CoV1404 (1), AZD1061/AZD8895 (1), LY-CoV1404/S309 (1). Their
+  `sign_agree_frac` in `crossgroup_overlap.csv` should be read as uninterpretable rather
+  than as evidence either way. All have overlap ≤ 3, so nothing substantive rests on them.
+
+Resolving this means establishing the sort direction per antibody from the Library M raw
+processing code (`RBD Data/LibraryM_raw_data_processing/`) and, if confirmed, flipping the
+floor set before any cross-set comparison.
+
+## Datasets
+
+Three, and only one is used here. Full map in the parent repo's `CLAUDE.md`.
+
+- `data/paired/` — model-ready `(antibody_sequence, rbd_sequence, affinity)` pairs from
+  Library M. `rbd_split_{train,val,test}.csv`, 821,868 / 102,714 / 102,780 rows, split by
+  RBD genotype with all six antibodies in every split. **This is what the analysis uses.**
+- `data/rbd_dms/` — the eight unzipped `MABAa_*` Library M phenotype CSVs these were built
+  from.
+- `RBD Data/` — **in the parent repo, one level above this one**, not tracked here. The full
+  upstream release: Libraries B, C and M zipped, plus `File_Details.csv` and the raw
+  processing folders. Any path beginning `RBD Data/` in this README is parent-relative.
+
+## Caveats
+
+- **n = 6 groups.** Every cross-group correlation — including the r = 0.907 effect-size
+  result that carries the shrinkage conclusion — has six points. These rank explanations;
+  they do not establish them. The AZD8895 counterexample (least censored, second-most
+  compressed) is the sturdier half of the censoring argument because it is a direct
+  contradiction rather than a trend.
+- **The two-scale problem above** is unresolved and bounds what cross-group claims mean.
+- **Measurement-noise scope.** The noise floor used when judging whether interaction
+  magnitudes are recoverable came from 682 repeated genotypes, estimated over **train and
+  test rows together**, not test alone. It is therefore not a clean held-out noise estimate,
+  and a test-only recomputation would be the honest version. This figure comes from session
+  notes; no script in this directory reproduces it.
+- **Model-implied effects use 16 backgrounds**, drawn from held-out test genotypes. Both `d`
+  and the Tobit coefficients are in affinity units, so ratios are interpretable, but the
+  background sample is small and `model_interaction_sd` in
+  `results/model_implied_interactions.csv` is often the same order as the mean.
+- **Two groups have no interior-only control.** S309 and AZD8895 are excluded from that
+  comparison on selection grounds (see above), which is precisely where censoring is
+  worst — so the control is missing where it would matter most.
+
+## Open questions
+
+1. **Does Library C have complete sublandscapes?** It is 7 loci on 7 backgrounds (16,800
+   variants) at only 2–21% censoring, against Library M's 49–76%. If the sublandscapes are
+   complete it supports interaction estimates that do not depend on Tobit extrapolation at
+   all. Note that Library C's antibody files are *fluorescence* (`Fluor at 1uM`,
+   `Fluor at 10nM`, two replicates each) and not KD — only its ACE2 file is KD — so this is
+   not a drop-in replacement for the Library M target.
+2. **Does the shrinkage conclusion survive on better-conditioned data?** The whole
+   censoring-vs-shrinkage argument rests on six heavily censored groups. Library C is the
+   natural test: if attenuation slopes stay near 0.26 where censoring is 2–21%, that closes
+   the question that n = 6 leaves open.
+3. **Does a Walsh-Hadamard decomposition need attenuation correction first?** Given global
+   slopes of ~0.26 on main effects and a further 1.57× on interactions, a variance spectrum
+   computed from model predictions would understate every order, and not uniformly —
+   higher orders are compressed harder. The spectrum is probably not interpretable until
+   corrected, and what the correct correction is is itself open.
+
