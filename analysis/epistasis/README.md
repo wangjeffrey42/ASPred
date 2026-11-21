@@ -7,7 +7,7 @@ paths relative to their own location, so they run in place:
 cd analysis/epistasis/scripts && python3 s1_features.py
 ```
 
-`cache/` holds intermediate pickles and is regenerable by rerunning s1 → s20 in order.
+`cache/` holds intermediate pickles and is regenerable by rerunning s1 → s21 in order.
 `results/` holds the reported tables.
 
 Scripts need the `aspred` conda env (`conda activate aspred`).
@@ -63,6 +63,7 @@ is real but too compressed to buy it anything.
 | `s18_main_vs_interaction_slope.py` | main-effect vs interaction attenuation side by side |
 | `s19_excess_vs_censoring.py` | tests whether excess interaction compression tracks censoring |
 | `s20_additive_vs_model.py` | held-out additive-vs-trained-model comparison (headline table) |
+| `s21_replicate_noise.py` | measurement-noise floor from the MABAa/MABAb replicate pair |
 
 ## Decisions that are easy to get wrong
 
@@ -198,9 +199,39 @@ with no harmonization, so sign agreement across the two sets is computed on oppo
   `sign_agree_frac` in `crossgroup_overlap.csv` should be read as uninterpretable rather
   than as evidence either way. All have overlap ≤ 3, so nothing substantive rests on them.
 
+**What it affects outside this directory.** Traced; the numbers are sound but several
+labels are not:
+
+- `src/plot_decile_calibration.py` computes every decile, spread and ranking accuracy
+  inside `groupby("antibody_name")`, so **the numbers are valid**. All six curves rise.
+  But the x-axis reads "Predicted binding rank (low to high)" and the y-axis "Mean measured
+  affinity" for all six panels, and a rising curve means *more escape* for the floor trio
+  and *more binding* for the ceiling trio. The six-panel figure needs per-panel axis
+  wording; the **overlay figure is worse** — it min-max normalizes all six onto one panel
+  "so the shapes are comparable", which presents two opposed phenotypes as a single trend.
+- `src/plot_binds_escaped_split.py` labels `label == 1` as **"Binds"** for all six groups.
+  For the floor trio `affinity > median` means more escape, so **the legend is inverted for
+  three of six antibodies.**
+- `src/plot_measured_vs_predicted_heatmap.py` sorts its shared row order by "mean MEASURED
+  binding across antibodies" and takes one color scale from all antibodies pooled —
+  averaging across opposed signs and across ranges `[0, 4.3]` vs `(−2.8, 1]`.
+- `data/paired/{group,variant}_holdout_labeled/` inherit the same convention: `label == 1`
+  means "escapes" for the floor trio and "binds" for the ceiling trio. Per-group classifier
+  metrics in `results/paired_classifier_test_metrics.csv` are unaffected (each antibody is
+  in training, so the model learns its convention), but the **`pooled` row mixes the two
+  conventions** and is not a single binds-vs-escapes number. The unused
+  `group_holdout_labeled/` split is the live hazard: train is 3 ceiling + 1 floor, test is
+  S309 (floor), so an antibody-generalization run there would be asked to transfer an
+  inverted label.
+- **Unaffected:** `s15`–`s19`. Each loops `for ab in ABS` and computes Pearson, Spearman,
+  slope and RMS within one group, where a sign flip negates the fitted coefficient and the
+  model-implied value together — all four statistics are algebraically invariant to it. The
+  `s19` effect-size correlation uses RMS magnitudes only, so the r = 0.907 shrinkage result
+  does not depend on sign convention either.
+
 Resolving this means establishing the sort direction per antibody from the Library M raw
 processing code (`RBD Data/LibraryM_raw_data_processing/`) and, if confirmed, flipping the
-floor set before any cross-set comparison.
+floor set before any cross-set comparison and fixing the figure labels above.
 
 ## Datasets
 
@@ -223,11 +254,26 @@ Three, and only one is used here. Full map in the parent repo's `CLAUDE.md`.
   compressed) is the sturdier half of the censoring argument because it is a direct
   contradiction rather than a trend.
 - **The two-scale problem above** is unresolved and bounds what cross-group claims mean.
-- **Measurement-noise scope.** The noise floor used when judging whether interaction
-  magnitudes are recoverable came from 682 repeated genotypes, estimated over **train and
-  test rows together**, not test alone. It is therefore not a clean held-out noise estimate,
-  and a test-only recomputation would be the honest version. This figure comes from session
-  notes; no script in this directory reproduces it.
+- **Measurement noise: the "682 repeated genotypes" figure does not reconstruct. Do not
+  cite it.** No scope over the paired data yields 682. Repeated genotypes number 181
+  (train), 29 (test), 20 (val), 210 (train+test), 230 (all splits); the source
+  `antibody_rbd_affinity_pairs.csv` has 229 genotypes measured twice and 1 measured three
+  times — 230 in total, 1,380 duplicate `(antibody, genotype)` keys. The figure appears to
+  be an artifact of an earlier session's scope choice. It was also the wrong basis: the
+  paired dataset is built from **replicate `a` only** (`build_paired_dataset.py`), so
+  within-dataset duplicates are incidental re-measurements, not the designed replicate.
+
+  `s21` gives the defensible version from the actual technical replicate, MABAa vs MABAb,
+  on **126,062 shared genotypes per antibody** (`results/replicate_noise.csv`).
+  Per-measurement sd is 0.055–0.080 overall and **0.082–0.121 interior (median 0.102)**,
+  with replicate Pearson 0.867–0.898.
+
+  This noise floor is the *same order* as the RMS fitted interaction coefficients
+  (0.054–0.163), which sounds fatal and is not: each coefficient is estimated from ~10⁵
+  rows, so the reported Tobit SEs (~0.006–0.008) sit well below the effect sizes and the
+  FDR-significant interactions remain identified. The noise floor bounds **single-variant
+  prediction**, not the aggregate coefficient estimates. Note MABAb covers a different
+  locus set than MABAa, so this is a genotype-overlap comparison, not a matched re-assay.
 - **Model-implied effects use 16 backgrounds**, drawn from held-out test genotypes. Both `d`
   and the Tobit coefficients are in affinity units, so ratios are interpretable, but the
   background sample is small and `model_interaction_sd` in
